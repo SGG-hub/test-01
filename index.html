@@ -1,112 +1,139 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh">
 <head>
-    <meta charset="UTF-8">
-    <title>GLUT SGG</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            background: #fff;
-        }
-        header {
-  		background: #e36c00;
-  	color: #fff;
-  	padding: 0; /* 去掉内边距，方便图片铺满 */
-  	text-align: center;
-  	position: relative;
-  	height: 200px; /* 可以根据需要调整 header 高度 */
-  	overflow: hidden; /* 防止图片溢出 */
-	}
-        header img {
-  		width: 100%;
-  		height: 100%;
-  	object-fit: cover; /* 保持比例，裁剪超出部分 */
-  	position: absolute; /* 让图片作为背景层 */
-  	top: 0;
-  	left: 0;
-  	z-index: 0;
-	}
-        header h1 {
-            display: inline;
-            margin-left: 10px;
-            font-size: 28px;
-            vertical-align: middle;
-        }
-        main {
-            padding: 20px;
-        }
-        input[type="file"] {
-            margin-bottom: 20px;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-family: monospace;
-        }
-        table, th, td {
-            border: 1px solid #000;
-        }
-        th, td {
-            padding: 4px 8px;
-            text-align: center;
-        }
-        th {
-            background: #f0f0f0;
-        }
-    </style>
+<meta charset="UTF-8">
+<title>GLUT SGG</title>
+<style>
+body { font-family: Arial, sans-serif; margin:0; padding:0; background:#fff; }
+header { background:#e36c00; color:#fff; padding:0; text-align:center; position:relative; height:200px; overflow:hidden; }
+header img { width:100%; height:100%; object-fit:cover; position:absolute; top:0; left:0; z-index:0; opacity:0.8; }
+header h1 { position:relative; z-index:1; font-size:28px; background:rgba(0,0,0,0.4); display:inline-block; padding:10px 20px; border-radius:8px; margin-top:70px; }
+main { padding:20px; }
+input[type="file"], button.loadDefault { margin-bottom:20px; padding:6px 12px; border:none; border-radius:4px; background:#e36c00; color:#fff; cursor:pointer; }
+table { width:100%; border-collapse:collapse; font-family:monospace; table-layout:fixed; }
+table, th, td { border:1px solid #000; }
+th, td { padding:4px 8px; text-align:center; word-break:break-all; }
+th { background:#f0f0f0; position:sticky; top:0; z-index:2; }
+.pagination { margin-top:15px; text-align:center; }
+.pagination button { padding:6px 12px; margin:0 5px; border:none; border-radius:4px; background:#e36c00; color:#fff; cursor:pointer; }
+.pagination button:disabled { background:#ccc; cursor:not-allowed; }
+</style>
 </head>
 <body>
 
 <header>
-    <img src="https://www.glut.edu.cn/images/yanshandamen.jpg" alt="glut">
-    <h1>Observations for Station 59431</h1>
+  <img src="https://www.glut.edu.cn/images/yanshandamen.jpg" alt="glut">
+  <h1>GLUT SGG</h1>
 </header>
 
 <main>
-    <input type="file" id="fileInput" accept=".txt,.csv">
-    <table id="dataTable">
-        <thead></thead>
-        <tbody></tbody>
-    </table>
+  <input type="file" id="fileInput" accept=".csv,.txt">
+  <button class="loadDefault">显示库中数据</button>
+  <table id="dataTable">
+    <thead></thead>
+    <tbody></tbody>
+  </table>
+  <div class="pagination">
+    <button id="prevBtn">上一页</button>
+    <span id="pageInfo"></span>
+    <button id="nextBtn">下一页</button>
+  </div>
 </main>
 
 <script>
-    const fileInput = document.getElementById('fileInput');
-    const table = document.getElementById('dataTable');
-    const thead = table.querySelector('thead');
-    const tbody = table.querySelector('tbody');
+const fileInput = document.getElementById('fileInput');
+const loadDefaultBtn = document.querySelector('.loadDefault');
+const table = document.getElementById('dataTable');
+const thead = table.querySelector('thead');
+const tbody = table.querySelector('tbody');
+const prevBtn = document.getElementById('prevBtn');
+const nextBtn = document.getElementById('nextBtn');
+const pageInfo = document.getElementById('pageInfo');
 
-    fileInput.addEventListener('change', (event) => {
-        const file = event.target.files[0];
-        if (!file) return;
+let fullData = [];
+const rowsPerPage = 200;
+let currentPage = 1;
 
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const text = e.target.result;
-            displayTable(text);
-        };
-        reader.readAsText(file);
-    });
+// 中文 + 英文表头
+const fixedHeaders = [
+  '行号',
+  '年 (year)', 
+  '年积日 (doy)', 
+  '日积时 (hour)', 
+  '纬度 (lat)', 
+  '经度 (lon)', 
+  '天顶对流层干延迟 (ZHD)', 
+  '天顶对流层湿延迟 (ZWD)', 
+  '加权平均温度 (Tm)', 
+  '大气可降雨量 (PWV)'
+];
 
-    function displayTable(text) {
-        tbody.innerHTML = '';
-        thead.innerHTML = '';
+// 渲染表头
+function renderHeader() {
+  thead.innerHTML = '<tr>' + fixedHeaders.map(h => `<th>${h}</th>`).join('') + '</tr>';
+}
 
-        const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
-        if (lines.length === 0) return;
+// 渲染分页
+function renderPage() {
+  tbody.innerHTML = '';
+  const totalPages = Math.ceil(fullData.length / rowsPerPage);
+  const start = (currentPage - 1) * rowsPerPage;
+  const end = Math.min(start + rowsPerPage, fullData.length);
 
-        // 假设第一行是表头
-        const headers = lines[0].split(/\s+/);
-        thead.innerHTML = '<tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr>';
+  for (let i = start; i < end; i++) {
+    const row = fullData[i];
+    const rowCells = [
+      i + 1,      // 行号
+      '', '', ''  // 前三列空白 year/doy/hour
+    ].concat(row);
+    while (rowCells.length < fixedHeaders.length) rowCells.push('');
+    tbody.insertAdjacentHTML('beforeend', '<tr>' + rowCells.map(v=>`<td>${v}</td>`).join('') + '</tr>');
+  }
 
-        for (let i = 1; i < lines.length; i++) {
-            const cells = lines[i].split(/\s+/);
-            const rowHtml = '<tr>' + cells.map(c => `<td>${c}</td>`).join('') + '</tr>';
-            tbody.innerHTML += rowHtml;
-        }
-    }
+  pageInfo.textContent = `第 ${currentPage} 页 / 共 ${totalPages} 页 (${fullData.length} 行)`;
+  prevBtn.disabled = currentPage === 1;
+  nextBtn.disabled = currentPage === totalPages;
+}
+
+// 读取 CSV 文本
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+  fullData = lines.map(l => l.split(/[\s,]+/));
+  currentPage = 1;
+  renderHeader();
+  renderPage();
+}
+
+// 选择文件上传
+fileInput.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => parseCSV(ev.target.result);
+  reader.readAsText(file);
+});
+
+// 默认库 CSV
+const defaultCSVUrl = 'https://raw.githubusercontent.com/SGG-hub/test-01/main/data.csv';
+function loadDefaultCSV() {
+  fetch(defaultCSVUrl)
+    .then(res => {
+      if (!res.ok) throw new Error('无法加载默认 CSV');
+      return res.text();
+    })
+    .then(text => parseCSV(text))
+    .catch(err => console.error(err));
+}
+
+// 按钮触发默认库加载
+loadDefaultBtn.addEventListener('click', loadDefaultCSV);
+
+// 分页按钮
+prevBtn.addEventListener('click', () => { if(currentPage>1){currentPage--; renderPage(); }});
+nextBtn.addEventListener('click', () => { if(currentPage<Math.ceil(fullData.length/rowsPerPage)){currentPage++; renderPage(); }});
+
+// 页面加载时自动加载库数据
+loadDefaultCSV();
 </script>
 
 </body>
