@@ -27,12 +27,14 @@ th { background:#f0f0f0; position:sticky; top:0; z-index:2; }
 </header>
 
 <main>
+  <button class="loadDefault">显示库中默认文件数据</button>
   <input type="file" id="fileInput" accept=".csv,.txt">
-  <button class="loadDefault">显示库中数据</button>
+  
   <table id="dataTable">
     <thead></thead>
     <tbody></tbody>
   </table>
+  
   <div class="pagination">
     <button id="prevBtn">上一页</button>
     <span id="pageInfo"></span>
@@ -51,6 +53,7 @@ const nextBtn = document.getElementById('nextBtn');
 const pageInfo = document.getElementById('pageInfo');
 
 let fullData = [];
+let displayedData = [];
 const rowsPerPage = 200;
 let currentPage = 1;
 
@@ -73,15 +76,15 @@ function renderHeader() {
   thead.innerHTML = '<tr>' + fixedHeaders.map(h => `<th>${h}</th>`).join('') + '</tr>';
 }
 
-// 渲染分页
+// 渲染表格
 function renderPage() {
   tbody.innerHTML = '';
-  const totalPages = Math.ceil(fullData.length / rowsPerPage);
+  const totalPages = Math.ceil(displayedData.length / rowsPerPage);
   const start = (currentPage - 1) * rowsPerPage;
-  const end = Math.min(start + rowsPerPage, fullData.length);
+  const end = Math.min(start + rowsPerPage, displayedData.length);
 
   for (let i = start; i < end; i++) {
-    const row = fullData[i];
+    const row = displayedData[i];
     const rowCells = [
       i + 1,      // 行号
       '', '', ''  // 前三列空白 year/doy/hour
@@ -90,21 +93,37 @@ function renderPage() {
     tbody.insertAdjacentHTML('beforeend', '<tr>' + rowCells.map(v=>`<td>${v}</td>`).join('') + '</tr>');
   }
 
-  pageInfo.textContent = `第 ${currentPage} 页 / 共 ${totalPages} 页 (${fullData.length} 行)`;
+  pageInfo.textContent = `第 ${currentPage} 页 / 共 ${totalPages} 页 (${displayedData.length} 行已加载 / 共 ${fullData.length} 行)`;
   prevBtn.disabled = currentPage === 1;
   nextBtn.disabled = currentPage === totalPages;
 }
 
-// 读取 CSV 文本
+// 解析 CSV
 function parseCSV(text) {
   const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
   fullData = lines.map(l => l.split(/[\s,]+/));
+
+  // 先显示前200行
+  displayedData = fullData.slice(0, rowsPerPage);
   currentPage = 1;
   renderHeader();
   renderPage();
+
+  // 后续分批加载剩余数据，避免首次等待
+  if (fullData.length > rowsPerPage) {
+    let index = rowsPerPage;
+    const batchSize = 500; // 每批加载500行
+    const interval = setInterval(() => {
+      const nextIndex = Math.min(index + batchSize, fullData.length);
+      displayedData = displayedData.concat(fullData.slice(index, nextIndex));
+      index = nextIndex;
+      renderPage();
+      if (index >= fullData.length) clearInterval(interval);
+    }, 50); // 每50ms加载一批
+  }
 }
 
-// 选择文件上传
+// 文件选择
 fileInput.addEventListener('change', e => {
   const file = e.target.files[0];
   if (!file) return;
@@ -113,27 +132,21 @@ fileInput.addEventListener('change', e => {
   reader.readAsText(file);
 });
 
-// 默认库 CSV
+// 默认 CSV
 const defaultCSVUrl = 'https://raw.githubusercontent.com/SGG-hub/test-01/main/data.csv';
-function loadDefaultCSV() {
+loadDefaultBtn.addEventListener('click', () => {
   fetch(defaultCSVUrl)
-    .then(res => {
-      if (!res.ok) throw new Error('无法加载默认 CSV');
-      return res.text();
-    })
+    .then(res => res.ok ? res.text() : Promise.reject('无法加载默认 CSV'))
     .then(text => parseCSV(text))
     .catch(err => console.error(err));
-}
-
-// 按钮触发默认库加载
-loadDefaultBtn.addEventListener('click', loadDefaultCSV);
+});
 
 // 分页按钮
 prevBtn.addEventListener('click', () => { if(currentPage>1){currentPage--; renderPage(); }});
-nextBtn.addEventListener('click', () => { if(currentPage<Math.ceil(fullData.length/rowsPerPage)){currentPage++; renderPage(); }});
+nextBtn.addEventListener('click', () => { if(currentPage<Math.ceil(displayedData.length/rowsPerPage)){currentPage++; renderPage(); }});
 
-// 页面加载时自动加载库数据
-loadDefaultCSV();
+// 页面加载时先显示库数据前200行
+loadDefaultBtn.click();
 </script>
 
 </body>
